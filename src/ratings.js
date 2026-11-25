@@ -6,6 +6,12 @@ const metricCount = (rows, metric) => metric === 'kd'
   ? rows.filter(row => Number.isFinite(row.metrics.K) && Number.isFinite(row.metrics.D)).length
   : rows.filter(row => Number.isFinite(row.metrics[metric === 'kills' ? 'K' : 'DMG'])).length;
 
+// Evaluate participation across all modes, independent of the current scoring filter.
+export function matchesParticipation(player, events, criteria) {
+  const played = new Set([...player.maps, ...player.series].map(row => row.event));
+  return events.every(event => criteria[event.id] !== 'played' || played.has(event.id));
+}
+
 export function ratePlayers(entries) {
   const modes = [...new Set(entries.flatMap(entry => entry.records.maps.map(row => row.mode)))];
   const fields = new Map();

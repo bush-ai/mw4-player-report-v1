@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { format, selectRecords, summarize } from './model.js';
-import { ratePlayers } from './ratings.js';
+import { matchesParticipation, ratePlayers } from './ratings.js';
 import { Explore, TierBadge, Tiers } from './Charts.jsx';
 import { ProfileReport, ComparisonReport } from './ProfileReport.jsx';
 import BushReport from './BushReport.jsx';
@@ -18,11 +18,16 @@ function Select({ label, value, onChange, items, empty }) {
   </select></label>;
 }
 
+function eventOrder(events) {
+  const order = name => /showcase/i.test(name) ? 0 : /cup\s*1\b/i.test(name) ? 1 : /cup\s*2\b/i.test(name) ? 2 : 3;
+  return [...events].sort((a, b) => order(a.name) - order(b.name) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
 function Filters({ data, event, mode, change }) {
   const available = new Set(data.players.flatMap(player => selectRecords(player, event, '').maps.map(row => row.mode)));
   return <div className="filters">
     <Select label="Event" value={event} onChange={value => change({ event: value, mode: '' })}
-      items={data.events.map(item => [item.id, item.name])} empty="All events" />
+      items={eventOrder(data.events).map(item => [item.id, item.name])} empty="All events" />
     <div className="mode-filter">
       <span>Game mode</span>
       <div className="mode-buttons">
@@ -50,7 +55,7 @@ function Pagination({ page, count, setPage, pageSize = PAGE_SIZE }) {
   </div>;
 }
 
-function Directory({ data, event, scope, entries, ratings }) {
+function Directory({ data, event, scope, entries, ratings, criteria }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [order, setOrder] = useState('score');
@@ -115,7 +120,7 @@ function Directory({ data, event, scope, entries, ratings }) {
               aria-label={`Select ${player.name} for comparison`} onChange={() => togglePlayer(player.id)} /></td>
             <th scope="row"><Link className="board-player" to={`/players/${player.id}${scope}`}>
               
-              <span>{player.name}<small>{rating ? `Rank #${rating.rank}` : 'Unranked'}</small></span></Link></th>
+              <span>{player.name}<small>{rating ? `Rank #${rating.rank}` : !matchesParticipation(player, data.events, criteria) ? 'Does not meet participation filter' : 'Unranked'}</small></span></Link></th>
             <td>{rating ? <TierBadge tier={rating.tier} /> : <span className="unranked">Unranked</span>}</td>
             <td><span className="board-score">{format(rating?.score, 1)}</span></td>
             <td>{stats.count}</td><td className="accent">{format(stats.kd)}</td>
@@ -123,7 +128,7 @@ function Directory({ data, event, scope, entries, ratings }) {
           </tr>)}
       </Table> : <p className="empty" role="status">No players match these filters.</p>}
       <Pagination page={page} count={matches.length} setPage={setPage} pageSize={pageSize} />
-      <p className="board-note">Score and tier use the selected event and modes. Score needs at least three maps per qualifying measure. <Link to={`/tiers${scope}`}>How tiers work</Link></p>
+      <p className="board-note">Rankings use the selected event, modes and participation filters. Score needs at least three maps per qualifying measure. <Link to={`/tiers${scope}`}>How tiers work</Link></p>
     </section>
   </>;
 }
@@ -207,6 +212,7 @@ function Compare({ data, scope, event, mode, entries, ratings, params, change })
 
 function Report({ data, theme, setTheme }) {
   const [params, setParams] = useSearchParams();
+  const [participation, setParticipation] = useState(null);
   const { pathname } = useLocation();
   const event = data.events.find(item => item.id === params.get('event'))?.id || '';
   const mode = Object.hasOwn(data.modes, params.get('mode')) ? params.get('mode') : '';
@@ -215,6 +221,7 @@ function Report({ data, theme, setTheme }) {
   if (mode) scopeParams.set('mode', mode);
   const scope = scopeParams.size ? `?${scopeParams}` : '';
   const change = changes => {
+    if (Object.hasOwn(changes, 'event')) setParticipation(null);
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(changes)) {
       if (value) next.set(key, value);
@@ -227,8 +234,9 @@ function Report({ data, theme, setTheme }) {
     return { player, records, stats: summarize(records.maps) };
   }).filter(entry => entry.records.maps.length || entry.records.series.length), [data, event, mode]);
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
-  const ratings = useMemo(() => ratePlayers(entries), [entries]);
-  const props = { data, scope, event, mode, entries, ratings };
+  const criteria = participation ?? Object.fromEntries(data.events.map(item => [item.id, event ? 'any' : 'played']));
+  const ratings = useMemo(() => ratePlayers(entries.filter(entry => matchesParticipation(entry.player, data.events, criteria))), [entries, data.events, criteria]);
+  const props = { data, scope, event, mode, entries, ratings, criteria };
   return <div className="app-frame">
     <aside className="sidebar">
       <Link className="brand" to={`/${scope}`}><img src={`${BASE}logo.png`} alt="" /><span>PLAYER REPORT<small>MW4 COMPETITIVE</small></span></Link>
@@ -246,6 +254,12 @@ function Report({ data, theme, setTheme }) {
       <header className="topbar"><div className="top-inner"><div className="top-location">MW4 <span>/</span> <strong>{pathname.startsWith('/players/') ? 'Player profile' : pathname.startsWith('/tiers') ? 'Tiers' : pathname.startsWith('/explore') ? 'Charts' : pathname.startsWith('/compare') ? 'Compare' : pathname.startsWith('/bush-report') ? 'BushAi Report' : 'Players'}</strong></div><button className="theme-toggle" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button></div></header>
     <main>
       <div className="scope-bar"><span className="scope-label">DATASET</span><Filters data={data} event={event} mode={mode} change={change} /></div>
+      <section className="participation-filter" aria-labelledby="participation-label">
+        <div><strong id="participation-label">Required events</strong><p>Players must have participated in every selected event. Playing in other events is fine.</p></div>
+        <div className="participation-options">{eventOrder(data.events).map(item => <label key={item.id}><input type="checkbox" checked={criteria[item.id] === 'played'}
+          onChange={e => setParticipation({ ...criteria, [item.id]: e.target.checked ? 'played' : 'any' })} /> <span>{item.name}</span></label>)}</div>
+        <p className="participation-hint">The event selector above controls which stats are scored. Changing it resets these selections.</p>
+      </section>
       <Routes>
         <Route path="/" element={<Directory key={scope} {...props} />} />
         <Route path="/players/:id" element={<Profile {...props} />} />
@@ -258,6 +272,7 @@ function Report({ data, theme, setTheme }) {
       <footer>
         <details><summary>Data coverage and calculations</summary>
           <p>Profiles require recorded map or series stats. Series coverage uses the workbook’s series code and team pairing within each event. Team and opponent labels are included with the match log.</p>
+          <p>Selected participation requirements determine which players are eligible for ratings; playing in additional events is allowed. Percentiles and tiers are calculated within that field. All-events rankings default to players with recorded participation in every event; individual events default to any participation. The player board and profiles remain available for all players.</p>
           <p>Ratings compare eligible players within each mode for the selected event and mode filters. K/D contributes 40%, kills per map 30% and damage per map 30%. A measure needs three recorded maps and a mode needs two measures. Missing measures are omitted and weights rescaled. Qualifying modes count equally even when their sample sizes differ. The score does not adjust for sample size, and players may have different mode coverage.</p>
           <p>Map K/D divides total kills by total deaths across maps with both values. Per-map averages use maps with that metric recorded. All-mode averages combine maps of different lengths and rules. A dash indicates an unavailable value.</p>
           <ul>{data.events.map(item => <li key={item.id}>{item.source} · {item.mapRows} player-map rows · {item.seriesRows} player-series rows</li>)}</ul>

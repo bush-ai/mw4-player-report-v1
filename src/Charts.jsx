@@ -13,7 +13,7 @@ export function Tiers({ ratings, scope }) {
   const visible = ratings.filter(player => player.name.toLowerCase().includes(query.trim().toLowerCase()));
   return <>
     <header className="hero"><p className="eyebrow">PERFORMANCE RATINGS</p><h1>Player <em>Tiers</em></h1>
-      <p>See how players compare within the selected events and modes. Ratings are recalculated when the filters change.</p></header>
+      <p>See how eligible players compare within the selected event, mode and participation filters. Ratings are recalculated when the filters change.</p></header>
     <div className="rating-summary"><strong>{ratings.length}</strong><span>eligible players</span></div>
     <details className="rating-method"><summary>How tiers are calculated</summary>
       <p>Within each mode, K/D, kills per map and damage per map are compared with eligible players using percentiles.
@@ -48,7 +48,7 @@ export function Tiers({ ratings, scope }) {
 
 export function Fingerprint({ rating, modes }) {
   const [selectedMode, setSelectedMode] = useState('');
-  if (!rating) return <div className="panel traits-panel"><h2>Performance profile</h2><p className="muted">Not enough recorded stats for a rating in this view.</p></div>;
+  if (!rating) return <div className="panel traits-panel"><h2>Performance profile</h2><p className="muted">No rating in this view. Check the participation filters and recorded stats.</p></div>;
   const labels = { kd: 'K/D', kills: 'Kills / map', damage: 'Damage / map' };
   const modeNames = [...new Set(rating.breakdown.map(item => item.mode))];
   const mode = modeNames.includes(selectedMode) ? selectedMode : modeNames[0];
